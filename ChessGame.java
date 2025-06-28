@@ -121,7 +121,7 @@ public class ChessGame extends Application {
     } 
     //This is an important function as it ensures that the game is kept running until king capture.
     private void listener(int i) throws IOException {
-        for (int j = i; i < 10; i++){
+        for (int j = i; j < 10; j++){
             String msg = in.readUTF();//This line ensures that it is continously reading the incoming UCI commands
             // from either SERVER or the CLIENT.
             if (msg.startsWith(moveFinal)){
