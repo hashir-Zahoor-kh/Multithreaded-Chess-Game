@@ -29,6 +29,7 @@ public class ChessGame extends Application {
     private Label   statusLabel = new Label("Status: starting…");
     private TextField moveInput = new TextField();
     private Button   sendBtn    = new Button("Send");
+    private boolean gameOverShown = false; // Flag to prevent multiple popups
     private static final String state = "STATE ";
     private static final String moveFinal = "MOVE ";
     private static final String moveResult = "RESULT ";
@@ -100,12 +101,15 @@ public class ChessGame extends Application {
                 renderer.setupBoard(game.getFen());//Redraws the updated Board once the move is confirmed to be valid.
                 onTurnSwitched("You: " + uci);//Displays your move for reference
                 
-                if(game.isGameOver()) {//Confirms if the king has been captured from GameState class.
+                sendMsg(moveFinal + uci);// Sends the move UCI to the peer
+                
+                if(game.isGameOver()) {//Confirms if the game is over after the move
                     String Result = game.getResult();
-                    sendMsg( moveResult + Result);
-                    onGameOver("You Win!");
-                } else{
-                    sendMsg(moveFinal + uci);// Sends the move UCI to the peer
+                    sendMsg(moveResult + Result);
+                    // Show victory message for the player who made the winning move
+                    if (!gameOverShown) {
+                        onGameOver("You Win! " + Result);
+                    }
                 }
             }
             moveInput.clear();
@@ -121,17 +125,36 @@ public class ChessGame extends Application {
     } 
     //This is an important function as it ensures that the game is kept running until king capture.
     private void listener(int i) throws IOException {
-        for (int j = i; j < 10; j++){
+        while (!game.isGameOver()) {
             String msg = in.readUTF();//This line ensures that it is continously reading the incoming UCI commands
             // from either SERVER or the CLIENT.
             if (msg.startsWith(moveFinal)){
-            String NewMsg = msg.substring(5);
-            Platform.runLater(() -> {
-                game.applyMove(NewMsg);
-                renderer.setupBoard(game.getFen());
-                onTurnSwitched("Them: " + NewMsg);
-            }); }  } 
+                String NewMsg = msg.substring(5);
+                Platform.runLater(() -> {
+                    game.applyMove(NewMsg);
+                    renderer.setupBoard(game.getFen());
+                    onTurnSwitched("Them: " + NewMsg);
+                    
+                    // Check if game is over after opponent's move
+                    if (game.isGameOver() && !gameOverShown) {
+                        String result = game.getResult();
+                        onGameOver("You Lost! " + result);
+                    }
+                });
+            } else if (msg.startsWith(moveResult)) {
+                // Handle game over messages from server
+                String result = msg.substring(moveResult.length());
+                if (result.contains("Wins") || result.contains("Draw")) {
+                    Platform.runLater(() -> {
+                        if (!gameOverShown) {
+                            onGameOver(result);
+                        }
+                    });
+                    break;
+                }
+            }
         }
+    }
     //Ensures that the turns are changed accordingly.
     private void onTurnSwitched(String statusText) {
         statusLabel.setText(statusText);
@@ -143,11 +166,14 @@ public class ChessGame extends Application {
     }
     //This function brings the alert for game end when the king is captured.
     private void onGameOver(String res) {
+        if (gameOverShown) return; // Prevent multiple popups
+        gameOverShown = true;
+        
         Platform.runLater(() -> {
             Alert end = new Alert(Alert.AlertType.INFORMATION);
             end.setTitle("Game Over");
             end.setHeaderText(null);
-            end.setContentText(res + "!");
+            end.setContentText(res);
             end.showAndWait();
 
             moveInput.setDisable(true);

@@ -44,27 +44,46 @@ public class ChessGameSession extends Thread {
 
                 //Read their move
                 String msg = in.readUTF();
-                if (!msg.startsWith(MOVE)) {
-                    out.writeUTF(RESULT + "ERROR: expected MOVE");
+                
+                // Handle different message types
+                if (msg.startsWith(MOVE)) {
+                    String uci = msg.substring(MOVE.length());
+
+                    //Try to apply
+                    boolean ok = game.applyMove(uci);
+                    if (!ok) {
+                        out.writeUTF(RESULT + "ILLEGAL");
+                        continue;
+                    }
+
+                    //show move & new FEN
+                    String newFen = game.getFen();
+                    out.writeUTF(RESULT + "OK");
+                    opp.writeUTF(MOVE + uci);
+
+                    //Swap turns
+                    whiteToMove = !whiteToMove;
+                    
+                    // Check if game is over after the move
+                    if (game.isGameOver()) {
+                        String gameResult = game.getResult();
+                        System.out.println("Game ended: " + gameResult);
+                        break; // Exit the loop to handle game over
+                    }
+                    
+                } else if (msg.startsWith(RESULT)) {
+                    // Handle result messages from client (like game over notifications)
+                    String result = msg.substring(RESULT.length());
+                    if (result.contains("Wins") || result.contains("Draw")) {
+                        // Client detected game over, just log and end
+                        System.out.println("Game ended: " + result);
+                        break;
+                    }
+                } else {
+                    // Unknown message type
+                    out.writeUTF(RESULT + "ERROR: unknown message type");
                     continue;
                 }
-                String uci = msg.substring(MOVE.length());
-
-                //Try to apply
-                boolean ok = game.applyMove(uci);
-                if (!ok) {
-                    out.writeUTF(RESULT + "ILLEGAL");
-                    continue;
-                }
-
-                //show move & new FEN
-                String newFen = game.getFen();
-                out.writeUTF(RESULT + "OK");
-                opp.writeUTF(MOVE + uci);
-                opp.writeUTF(STATE + newFen);
-
-                //Swap turns
-                whiteToMove = !whiteToMove;
             }
 
             //Game over

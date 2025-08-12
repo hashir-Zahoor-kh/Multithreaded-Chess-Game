@@ -69,20 +69,12 @@ public class GameState {
         int dr = 8 - (uci.charAt(3)-'0');
         if (!inBounds(sr,sc) || !inBounds(dr,dc)) return false;
 
-        char p = board[sr][sc];
-        if (p == '\0') return false;
-        boolean isWhiteP = Character.isUpperCase(p);
-        if (isWhiteP != whiteToMove) return false;
+        // Use the new legal move validation
+        if (!isLegalMove(sr, sc, dr, dc)) return false;
 
-        // target occupant
+        char p = board[sr][sc];
         char dest = board[dr][dc];
         boolean captureKing = (dest=='k' && whiteToMove) || (dest=='K' && !whiteToMove);
-
-        // must be empty or opponent
-        if (dest!='\0' && (Character.isUpperCase(dest)==isWhiteP)) return false;
-
-        // basic move-validation by piece type
-        if (!isValidPieceMove(p, sr, sc, dr, dc)) return false;
 
         // perform move
         board[dr][dc] = p;
@@ -100,18 +92,22 @@ public class GameState {
         // switch turn
         whiteToMove = !whiteToMove;
 
-        // if king was captured, end game
+        // Check for game end conditions
         if (captureKing) {
             gameOver = true;
-            boolean WhiteMove = Character.isUpperCase(p);
-            String Winner;
-            if(WhiteMove){
-                Winner = "White";
-            } else {
-                Winner = "Black";
-            }
-            this.result = Winner + "Wins!";
+            boolean WhiteMove = !whiteToMove; // The player who just moved
+            String Winner = WhiteMove ? "White" : "Black";
+            this.result = Winner + " Wins!";
+        } else if (isCheckmate()) {
+            gameOver = true;
+            boolean WhiteMove = !whiteToMove; // The player who just moved
+            String Winner = WhiteMove ? "White" : "Black";
+            this.result = Winner + " Wins by Checkmate!";
+        } else if (isStalemate()) {
+            gameOver = true;
+            this.result = "Draw by Stalemate!";
         }
+        
         return true;
     }
     // Took from here, https://chatgpt.com/share/681a4bec-04e8-8007-be04-f62341fee7f8
@@ -152,7 +148,141 @@ public class GameState {
     }
 
     public boolean isGameOver() {
-        return gameOver;
+        return gameOver || isCheckmate() || isStalemate();
+    }
+    
+    // Check if the current player is in checkmate
+    private boolean isCheckmate() {
+        if (!isInCheck()) return false;
+        return !hasLegalMoves();
+    }
+    
+    // Check if the current player is in stalemate
+    private boolean isStalemate() {
+        if (isInCheck()) return false;
+        return !hasLegalMoves();
+    }
+    
+    // Check if the current player's king is in check
+    private boolean isInCheck() {
+        // Find the king position
+        char kingChar = whiteToMove ? 'K' : 'k';
+        int kingRow = -1, kingCol = -1;
+        
+        for (int r = 0; r < SIZE; r++) {
+            for (int c = 0; c < SIZE; c++) {
+                if (board[r][c] == kingChar) {
+                    kingRow = r;
+                    kingCol = c;
+                    break;
+                }
+            }
+            if (kingRow != -1) break;
+        }
+        
+        if (kingRow == -1) return false; // King not found (shouldn't happen)
+        
+        // Check if any opponent piece can attack the king
+        return isSquareUnderAttack(kingRow, kingCol, !whiteToMove);
+    }
+    
+    // Check if a square is under attack by the specified color
+    private boolean isSquareUnderAttack(int row, int col, boolean byWhite) {
+        for (int r = 0; r < SIZE; r++) {
+            for (int c = 0; c < SIZE; c++) {
+                char piece = board[r][c];
+                if (piece == '\0') continue;
+                
+                boolean isPieceWhite = Character.isUpperCase(piece);
+                if (isPieceWhite != byWhite) continue;
+                
+                // Check if this piece can attack the target square
+                if (canPieceAttack(piece, r, c, row, col)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    // Check if a piece can attack a specific square (similar to move validation but for attacks)
+    private boolean canPieceAttack(char piece, int fromRow, int fromCol, int toRow, int toCol) {
+        int drc = toRow - fromRow, dcc = toCol - fromCol;
+        
+        switch (Character.toLowerCase(piece)) {
+            case 'p': // pawn attacks diagonally
+                int dir = (piece == 'P' ? -1 : +1);
+                return Math.abs(dcc) == 1 && drc == dir;
+            case 'r': // rook
+                if (drc != 0 && dcc != 0) return false;
+                return clearPath(fromRow, fromCol, toRow, toCol);
+            case 'b': // bishop
+                if (Math.abs(drc) != Math.abs(dcc)) return false;
+                return clearPath(fromRow, fromCol, toRow, toCol);
+            case 'q': // queen
+                if (drc == 0 || dcc == 0 || Math.abs(drc) == Math.abs(dcc))
+                    return clearPath(fromRow, fromCol, toRow, toCol);
+                return false;
+            case 'n': // knight
+                return (Math.abs(drc) == 2 && Math.abs(dcc) == 1)
+                    || (Math.abs(drc) == 1 && Math.abs(dcc) == 2);
+            case 'k': // king
+                return Math.max(Math.abs(drc), Math.abs(dcc)) == 1;
+            default:
+                return false;
+        }
+    }
+    
+    // Check if the current player has any legal moves
+    private boolean hasLegalMoves() {
+        for (int sr = 0; sr < SIZE; sr++) {
+            for (int sc = 0; sc < SIZE; sc++) {
+                char piece = board[sr][sc];
+                if (piece == '\0') continue;
+                
+                boolean isPieceWhite = Character.isUpperCase(piece);
+                if (isPieceWhite != whiteToMove) continue;
+                
+                // Try all possible destination squares
+                for (int dr = 0; dr < SIZE; dr++) {
+                    for (int dc = 0; dc < SIZE; dc++) {
+                        if (sr == dr && sc == dc) continue;
+                        
+                        // Test if this move is legal
+                        if (isLegalMove(sr, sc, dr, dc)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    // Check if a move is legal (doesn't leave king in check)
+    private boolean isLegalMove(int sr, int sc, int dr, int dc) {
+        char piece = board[sr][sc];
+        char dest = board[dr][dc];
+        
+        // Basic validation
+        if (piece == '\0') return false;
+        boolean isPieceWhite = Character.isUpperCase(piece);
+        if (isPieceWhite != whiteToMove) return false;
+        if (dest != '\0' && (Character.isUpperCase(dest) == isPieceWhite)) return false;
+        if (!isValidPieceMove(piece, sr, sc, dr, dc)) return false;
+        
+        // Make the move temporarily
+        board[dr][dc] = piece;
+        board[sr][sc] = '\0';
+        
+        // Check if king is in check after this move
+        boolean kingInCheck = isInCheck();
+        
+        // Undo the move
+        board[sr][sc] = piece;
+        board[dr][dc] = dest;
+        
+        return !kingInCheck;
     }
     
     public String getResult() {

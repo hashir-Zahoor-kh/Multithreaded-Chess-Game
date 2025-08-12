@@ -2,3 +2,7 @@
 .idea/
 *.iml
 .DS_Store
+*.class
+javafx-sdk-*/
+javafx.zip
+.vscode/
