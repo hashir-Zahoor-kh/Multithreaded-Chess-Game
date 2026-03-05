@@ -12,7 +12,7 @@ public class GameState {
     private boolean whiteToMove;
     private int whiteMoveCount = 0;
     private int blackMoveCount = 0;
-    private boolean gameOver = false;
+    public volatile boolean gameOver = false; // Made public volatile for thread-safe access
     private String result = "";
 
     public GameState(String startFen) {
@@ -134,8 +134,11 @@ public class GameState {
                 if (Math.abs(drc)!=Math.abs(dcc)) return false;
                 return clearPath(sr,sc,dr,dc);
             case 'q': // queen
-                if (drc==0 || dcc==0 || Math.abs(drc)==Math.abs(dcc))
-                    return clearPath(sr,sc,dr,dc);
+                if (drc == 0 && dcc == 0) return false;          // same square
+                if (drc == 0 || dcc == 0)                         // rook-like
+                    return clearPath(sr, sc, dr, dc);
+                if (Math.abs(drc) == Math.abs(dcc))               // bishop-like
+                    return clearPath(sr, sc, dr, dc);
                 return false;
             case 'n': // knight
                 return (Math.abs(drc)==2 && Math.abs(dcc)==1)
@@ -259,8 +262,8 @@ public class GameState {
         return false;
     }
     
-    // Check if a move is legal (doesn't leave king in check)
-    private boolean isLegalMove(int sr, int sc, int dr, int dc) {
+    // Check if a move is legal (doesn't leave king in check) - PUBLIC and SYNCHRONIZED for thread safety
+    public synchronized boolean isLegalMove(int sr, int sc, int dr, int dc) {
         char piece = board[sr][sc];
         char dest = board[dr][dc];
         
