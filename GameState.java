@@ -15,10 +15,46 @@ public class GameState {
     public volatile boolean gameOver = false; // Made public volatile for thread-safe access
     private String result = "";
 
+    // Full FEN state (P0 #4)
+    private boolean whiteCanCastleKingside  = true;
+    private boolean whiteCanCastleQueenside = true;
+    private boolean blackCanCastleKingside  = true;
+    private boolean blackCanCastleQueenside = true;
+    private String  enPassantTarget = "-";   // e.g. "e3" right after 1.e4, else "-"
+    private int     halfmoveClock   = 0;     // resets on pawn move or capture
+    private int     fullmoveNumber  = 1;     // increments after Black's move
+
     public GameState(String startFen) {
         String[] parts = startFen.split(" ");
         loadFromFen(parts[0]);
         whiteToMove = parts.length>1 && parts[1].equalsIgnoreCase("w");
+
+        // Parse remaining FEN fields if present; otherwise leave defaults
+        // (defaults assume game start: full castling rights, no EP, clocks 0/1)
+        if (parts.length > 2) parseCastlingRights(parts[2]);
+        if (parts.length > 3) enPassantTarget = parts[3].isEmpty() ? "-" : parts[3];
+        if (parts.length > 4) {
+            try { halfmoveClock = Integer.parseInt(parts[4]); } catch (NumberFormatException ignored) {}
+        }
+        if (parts.length > 5) {
+            try { fullmoveNumber = Integer.parseInt(parts[5]); } catch (NumberFormatException ignored) {}
+        }
+    }
+
+    private void parseCastlingRights(String rights) {
+        whiteCanCastleKingside  = rights.indexOf('K') >= 0;
+        whiteCanCastleQueenside = rights.indexOf('Q') >= 0;
+        blackCanCastleKingside  = rights.indexOf('k') >= 0;
+        blackCanCastleQueenside = rights.indexOf('q') >= 0;
+    }
+
+    private String castlingRightsString() {
+        StringBuilder sb = new StringBuilder();
+        if (whiteCanCastleKingside)  sb.append('K');
+        if (whiteCanCastleQueenside) sb.append('Q');
+        if (blackCanCastleKingside)  sb.append('k');
+        if (blackCanCastleQueenside) sb.append('q');
+        return sb.length() == 0 ? "-" : sb.toString();
     }
     
     //Converts the FEN seperates it into 8 parts and fills the internal board accordingly.
@@ -53,6 +89,10 @@ public class GameState {
             if (r<7) sb.append('/');
         }
         sb.append(' ').append(whiteToMove?'w':'b');
+        sb.append(' ').append(castlingRightsString());
+        sb.append(' ').append(enPassantTarget);
+        sb.append(' ').append(halfmoveClock);
+        sb.append(' ').append(fullmoveNumber);
         return sb.toString();
     }
 
@@ -84,6 +124,47 @@ public class GameState {
         if ((p=='P' && dr==0) || (p=='p' && dr==7)) {
             board[dr][dc] = (p=='P' ? 'Q' : 'q');
         }
+
+        // --- Full-FEN bookkeeping (P0 #4) ---
+        boolean isPawnMove = (p == 'P' || p == 'p');
+        boolean isCapture  = (dest != '\0');
+
+        // Halfmove clock: reset on pawn move or capture, else increment
+        if (isPawnMove || isCapture) halfmoveClock = 0;
+        else                         halfmoveClock++;
+
+        // En passant target: set if a pawn just made a two-square move
+        if (isPawnMove && Math.abs(dr - sr) == 2) {
+            int epRow = (sr + dr) / 2;
+            char file = (char) ('a' + sc);
+            int rank = 8 - epRow;
+            enPassantTarget = "" + file + rank;
+        } else {
+            enPassantTarget = "-";
+        }
+
+        // Castling rights: lost when king moves, when a rook leaves its home
+        // square, or when a rook is captured on its home square.
+        if (p == 'K') { whiteCanCastleKingside = false; whiteCanCastleQueenside = false; }
+        else if (p == 'k') { blackCanCastleKingside = false; blackCanCastleQueenside = false; }
+        else if (p == 'R') {
+            if (sr == 7 && sc == 0) whiteCanCastleQueenside = false;
+            if (sr == 7 && sc == 7) whiteCanCastleKingside  = false;
+        } else if (p == 'r') {
+            if (sr == 0 && sc == 0) blackCanCastleQueenside = false;
+            if (sr == 0 && sc == 7) blackCanCastleKingside  = false;
+        }
+        if (dest == 'R') {
+            if (dr == 7 && dc == 0) whiteCanCastleQueenside = false;
+            if (dr == 7 && dc == 7) whiteCanCastleKingside  = false;
+        } else if (dest == 'r') {
+            if (dr == 0 && dc == 0) blackCanCastleQueenside = false;
+            if (dr == 0 && dc == 7) blackCanCastleKingside  = false;
+        }
+
+        // Fullmove number: increments after Black's move (i.e. when Black was the one moving)
+        if (!whiteToMove) fullmoveNumber++;
+        // --- end FEN bookkeeping ---
 
         // increment move count
         if (whiteToMove) whiteMoveCount++;
