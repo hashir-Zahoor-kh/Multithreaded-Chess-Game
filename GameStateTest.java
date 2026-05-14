@@ -17,6 +17,15 @@ public class GameStateTest {
         testCapturedRookOnA8RevokesBlackQueenside();
         testRoundTripSixFieldFen();
 
+        // P0 #3: promotion suffix
+        testPromotionDefaultsToQueenWhenNoSuffix();
+        testWhitePromotionToKnight();
+        testWhitePromotionToRook();
+        testWhitePromotionToBishop();
+        testBlackPromotionToKnight();
+        testInvalidPromotionSuffixDefaultsToQueen();
+        testPromotionSuffixIgnoredOnNonPromotingMove();
+
         System.out.println();
         System.out.println("Passed: " + passed + "  Failed: " + failed);
         if (failed > 0) System.exit(1);
@@ -104,6 +113,77 @@ public class GameStateTest {
         String fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 7 12";
         GameState g = new GameState(fen);
         assertEq("six-field FEN round-trips", fen, g.getFen());
+    }
+
+    // --- P0 #3: promotion-suffix tests ---
+
+    // Standard promotion test position: white pawn on e7, kings on a1/h8 (far apart),
+    // empty board otherwise — single-step promotion to e8 is legal.
+    static GameState whitePromotionPosition() {
+        return new GameState("7k/4P3/8/8/8/8/8/K7 w - - 0 1");
+    }
+
+    static GameState blackPromotionPosition() {
+        return new GameState("K7/8/8/8/8/8/4p3/7k b - - 0 1");
+    }
+
+    static char pieceAt(GameState g, String square) {
+        int col = square.charAt(0) - 'a';
+        int row = 8 - (square.charAt(1) - '0');
+        String[] rows = g.getFen().split(" ")[0].split("/");
+        int c = 0;
+        for (char ch : rows[row].toCharArray()) {
+            if (Character.isDigit(ch)) {
+                c += Character.getNumericValue(ch);
+            } else {
+                if (c == col) return ch;
+                c++;
+            }
+        }
+        return '\0';
+    }
+
+    static void testPromotionDefaultsToQueenWhenNoSuffix() {
+        GameState g = whitePromotionPosition();
+        require("e7e8 (no suffix) legal", g.applyMove("e7e8"));
+        assertEq("no suffix → queen", "Q", String.valueOf(pieceAt(g, "e8")));
+    }
+
+    static void testWhitePromotionToKnight() {
+        GameState g = whitePromotionPosition();
+        require("e7e8n legal", g.applyMove("e7e8n"));
+        assertEq("white promotes to knight", "N", String.valueOf(pieceAt(g, "e8")));
+    }
+
+    static void testWhitePromotionToRook() {
+        GameState g = whitePromotionPosition();
+        require("e7e8r legal", g.applyMove("e7e8r"));
+        assertEq("white promotes to rook", "R", String.valueOf(pieceAt(g, "e8")));
+    }
+
+    static void testWhitePromotionToBishop() {
+        GameState g = whitePromotionPosition();
+        require("e7e8b legal", g.applyMove("e7e8b"));
+        assertEq("white promotes to bishop", "B", String.valueOf(pieceAt(g, "e8")));
+    }
+
+    static void testBlackPromotionToKnight() {
+        GameState g = blackPromotionPosition();
+        require("e2e1n legal", g.applyMove("e2e1n"));
+        assertEq("black promotes to knight (lowercase)", "n", String.valueOf(pieceAt(g, "e1")));
+    }
+
+    static void testInvalidPromotionSuffixDefaultsToQueen() {
+        GameState g = whitePromotionPosition();
+        require("e7e8x (invalid suffix) still applies", g.applyMove("e7e8x"));
+        assertEq("invalid suffix → queen", "Q", String.valueOf(pieceAt(g, "e8")));
+    }
+
+    static void testPromotionSuffixIgnoredOnNonPromotingMove() {
+        // Suffix on a normal pawn push must not promote anything.
+        GameState g = new GameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w");
+        require("e2e4q (bogus suffix on non-promo) legal", g.applyMove("e2e4q"));
+        assertEq("non-promo suffix ignored, pawn stays a pawn", "P", String.valueOf(pieceAt(g, "e4")));
     }
 
     // --- Tiny assertion helpers ---

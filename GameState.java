@@ -120,9 +120,17 @@ public class GameState {
         board[dr][dc] = p;
         board[sr][sc] = '\0';
 
-        // auto-promotion: pawn reaching last rank → queen
+        // promotion: pawn reaching last rank — honor 5th UCI char if given (P0 #3),
+        // otherwise default to queen for backward compatibility.
         if ((p=='P' && dr==0) || (p=='p' && dr==7)) {
-            board[dr][dc] = (p=='P' ? 'Q' : 'q');
+            char promo = 'q';
+            if (uci.length() >= 5) {
+                char suffix = Character.toLowerCase(uci.charAt(4));
+                if (suffix == 'q' || suffix == 'r' || suffix == 'b' || suffix == 'n') {
+                    promo = suffix;
+                }
+            }
+            board[dr][dc] = (p=='P' ? Character.toUpperCase(promo) : promo);
         }
 
         // --- Full-FEN bookkeeping (P0 #4) ---
