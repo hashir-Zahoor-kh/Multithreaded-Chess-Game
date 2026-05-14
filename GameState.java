@@ -120,6 +120,15 @@ public class GameState {
         board[dr][dc] = p;
         board[sr][sc] = '\0';
 
+        // Castling: also move the rook (P0 #1). Detected by king moving exactly
+        // two files. canCastle has already verified all conditions via isLegalMove.
+        if ((p == 'K' || p == 'k') && Math.abs(dc - sc) == 2) {
+            int rookFromCol = (dc > sc) ? 7 : 0;
+            int rookToCol   = (dc > sc) ? 5 : 3;
+            board[dr][rookToCol]   = board[dr][rookFromCol];
+            board[dr][rookFromCol] = '\0';
+        }
+
         // promotion: pawn reaching last rank — honor 5th UCI char if given (P0 #3),
         // otherwise default to queen for backward compatibility.
         if ((p=='P' && dr==0) || (p=='p' && dr==7)) {
@@ -232,11 +241,74 @@ public class GameState {
             case 'n': // knight
                 return (Math.abs(drc)==2 && Math.abs(dcc)==1)
                     || (Math.abs(drc)==1 && Math.abs(dcc)==2);
-            case 'k': // king (no castling)
-                return Math.max(Math.abs(drc),Math.abs(dcc))==1;
+            case 'k': // king
+                if (Math.max(Math.abs(drc),Math.abs(dcc))==1) return true;
+                // Castling: king moves exactly two squares horizontally from its home square (P0 #1)
+                int homeRank = (p == 'K') ? 7 : 0;
+                if (drc == 0 && Math.abs(dcc) == 2 && sr == homeRank && sc == 4) {
+                    return canCastle(dcc == 2);
+                }
+                return false;
             default:
                 return false;
         }
+    }
+
+    // Castling legality (P0 #1). Verifies: rights present; king & rook on home
+    // squares; squares between are empty; king not in check now; king does not
+    // pass through or land on an attacked square. The "king doesn't land in
+    // check" is also covered by isLegalMove's temp-make/unmake test, so this
+    // method only needs to guard the *current* and *transit* squares — but we
+    // check the destination too for clarity and to keep the rule self-contained.
+    private boolean canCastle(boolean kingside) {
+        int row = whiteToMove ? 7 : 0;
+        char king = whiteToMove ? 'K' : 'k';
+        char rook = whiteToMove ? 'R' : 'r';
+        int kingCol = 4;
+        int rookCol = kingside ? 7 : 0;
+
+        // Castling rights for this color/side
+        boolean hasRight;
+        if (whiteToMove) hasRight = kingside ? whiteCanCastleKingside  : whiteCanCastleQueenside;
+        else             hasRight = kingside ? blackCanCastleKingside  : blackCanCastleQueenside;
+        if (!hasRight) return false;
+
+        // King and rook must be on their home squares
+        if (board[row][kingCol] != king) return false;
+        if (board[row][rookCol] != rook) return false;
+
+        // Squares between king and rook must be empty
+        if (kingside) {
+            if (board[row][5] != '\0' || board[row][6] != '\0') return false;
+        } else {
+            if (board[row][1] != '\0' || board[row][2] != '\0' || board[row][3] != '\0') return false;
+        }
+
+        // King currently in check?
+        if (isInCheck()) return false;
+
+        // King may not transit or land on an attacked square. We temp-move the
+        // king through each intermediate square so isInCheck() (which finds the
+        // king by scanning) correctly accounts for discovered attacks unblocked
+        // by the king's own departure from e1/e8.
+        int passCol = kingside ? 5 : 3;
+        int landCol = kingside ? 6 : 2;
+
+        boolean unsafe = false;
+        board[row][kingCol] = '\0';
+
+        board[row][passCol] = king;
+        if (isInCheck()) unsafe = true;
+        board[row][passCol] = '\0';
+
+        if (!unsafe) {
+            board[row][landCol] = king;
+            if (isInCheck()) unsafe = true;
+            board[row][landCol] = '\0';
+        }
+
+        board[row][kingCol] = king;
+        return !unsafe;
     }
 
     public boolean isGameOver() {

@@ -26,6 +26,20 @@ public class GameStateTest {
         testInvalidPromotionSuffixDefaultsToQueen();
         testPromotionSuffixIgnoredOnNonPromotingMove();
 
+        // P0 #1: castling
+        testWhiteKingsideCastle();
+        testWhiteQueensideCastle();
+        testBlackKingsideCastle();
+        testBlackQueensideCastle();
+        testCannotCastleWithoutRight();
+        testCannotCastleThroughOwnPiece();
+        testCannotCastleWhileInCheck();
+        testCannotCastleThroughAttackedSquare();
+        testCannotCastleOntoAttackedSquare();
+        testCastleQueensideStillBlockedByB1Knight();
+        testCastleRevokesBothRightsForThatColor();
+        testCastleIncrementsHalfmoveClock();
+
         System.out.println();
         System.out.println("Passed: " + passed + "  Failed: " + failed);
         if (failed > 0) System.exit(1);
@@ -184,6 +198,107 @@ public class GameStateTest {
         GameState g = new GameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w");
         require("e2e4q (bogus suffix on non-promo) legal", g.applyMove("e2e4q"));
         assertEq("non-promo suffix ignored, pawn stays a pawn", "P", String.valueOf(pieceAt(g, "e4")));
+    }
+
+    // --- P0 #1: castling tests ---
+
+    static void testWhiteKingsideCastle() {
+        GameState g = new GameState("4k3/8/8/8/8/8/8/4K2R w K - 0 1");
+        require("O-O legal", g.applyMove("e1g1"));
+        assertEq("white kingside castle FEN",
+            "4k3/8/8/8/8/8/8/5RK1 b - - 1 1",
+            g.getFen());
+    }
+
+    static void testWhiteQueensideCastle() {
+        GameState g = new GameState("4k3/8/8/8/8/8/8/R3K3 w Q - 0 1");
+        require("O-O-O legal", g.applyMove("e1c1"));
+        assertEq("white queenside castle FEN",
+            "4k3/8/8/8/8/8/8/2KR4 b - - 1 1",
+            g.getFen());
+    }
+
+    static void testBlackKingsideCastle() {
+        GameState g = new GameState("4k2r/8/8/8/8/8/8/4K3 b k - 0 1");
+        require("...O-O legal", g.applyMove("e8g8"));
+        assertEq("black kingside castle FEN",
+            "5rk1/8/8/8/8/8/8/4K3 w - - 1 2",
+            g.getFen());
+    }
+
+    static void testBlackQueensideCastle() {
+        GameState g = new GameState("r3k3/8/8/8/8/8/8/4K3 b q - 0 1");
+        require("...O-O-O legal", g.applyMove("e8c8"));
+        assertEq("black queenside castle FEN",
+            "2kr4/8/8/8/8/8/8/4K3 w - - 1 2",
+            g.getFen());
+    }
+
+    static void testCannotCastleWithoutRight() {
+        GameState g = new GameState("4k3/8/8/8/8/8/8/4K2R w - - 0 1");
+        boolean ok = g.applyMove("e1g1");
+        if (ok) {
+            failed++;
+            System.out.println("FAIL  cannot castle without right (move was accepted)");
+        } else {
+            passed++;
+            System.out.println("PASS  cannot castle without right");
+        }
+    }
+
+    static void testCannotCastleThroughOwnPiece() {
+        // Knight on f1 blocks kingside castle
+        GameState g = new GameState("4k3/8/8/8/8/8/8/4KN1R w K - 0 1");
+        boolean ok = g.applyMove("e1g1");
+        if (ok) { failed++; System.out.println("FAIL  cannot castle through own piece (accepted)"); }
+        else    { passed++; System.out.println("PASS  cannot castle through own piece"); }
+    }
+
+    static void testCannotCastleWhileInCheck() {
+        // Black rook on e2 gives check
+        GameState g = new GameState("4k3/8/8/8/8/8/4r3/4K2R w K - 0 1");
+        boolean ok = g.applyMove("e1g1");
+        if (ok) { failed++; System.out.println("FAIL  cannot castle while in check (accepted)"); }
+        else    { passed++; System.out.println("PASS  cannot castle while in check"); }
+    }
+
+    static void testCannotCastleThroughAttackedSquare() {
+        // Black rook on f2 attacks f1 — king would transit through check
+        GameState g = new GameState("4k3/8/8/8/8/8/5r2/4K2R w K - 0 1");
+        boolean ok = g.applyMove("e1g1");
+        if (ok) { failed++; System.out.println("FAIL  cannot castle through attacked square (accepted)"); }
+        else    { passed++; System.out.println("PASS  cannot castle through attacked square"); }
+    }
+
+    static void testCannotCastleOntoAttackedSquare() {
+        // Black rook on g2 attacks g1 — king would land in check
+        GameState g = new GameState("4k3/8/8/8/8/8/6r1/4K2R w K - 0 1");
+        boolean ok = g.applyMove("e1g1");
+        if (ok) { failed++; System.out.println("FAIL  cannot castle onto attacked square (accepted)"); }
+        else    { passed++; System.out.println("PASS  cannot castle onto attacked square"); }
+    }
+
+    static void testCastleQueensideStillBlockedByB1Knight() {
+        // Knight on b1 blocks queenside castle (rook would have to traverse b1)
+        GameState g = new GameState("4k3/8/8/8/8/8/8/RN2K3 w Q - 0 1");
+        boolean ok = g.applyMove("e1c1");
+        if (ok) { failed++; System.out.println("FAIL  queenside castle blocked by b1 knight (accepted)"); }
+        else    { passed++; System.out.println("PASS  queenside castle blocked by b1 knight"); }
+    }
+
+    static void testCastleRevokesBothRightsForThatColor() {
+        // White had both KQ; after kingside castle white should have neither
+        GameState g = new GameState("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1");
+        require("O-O legal with KQ rights", g.applyMove("e1g1"));
+        String[] parts = g.getFen().split(" ");
+        assertEq("white loses both rights after castling", "-", parts[2]);
+    }
+
+    static void testCastleIncrementsHalfmoveClock() {
+        GameState g = new GameState("4k3/8/8/8/8/8/8/4K2R w K - 4 1");
+        require("O-O legal", g.applyMove("e1g1"));
+        String[] parts = g.getFen().split(" ");
+        assertEq("castling is not pawn move/capture, halfmove++", "5", parts[4]);
     }
 
     // --- Tiny assertion helpers ---
