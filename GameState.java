@@ -116,9 +116,19 @@ public class GameState {
         char dest = board[dr][dc];
         boolean captureKing = (dest=='k' && whiteToMove) || (dest=='K' && !whiteToMove);
 
+        // En passant: a pawn moving diagonally onto an empty square is, by
+        // construction (validator already passed), an EP capture. The captured
+        // pawn sits on the same rank as the moving pawn's source. (P0 #2)
+        boolean isEpCapture = (p == 'P' || p == 'p') && (sc != dc) && (dest == '\0');
+
         // perform move
         board[dr][dc] = p;
         board[sr][sc] = '\0';
+
+        // Remove the EP-captured pawn now that the move is on the board.
+        if (isEpCapture) {
+            board[sr][dc] = '\0';
+        }
 
         // Castling: also move the rook (P0 #1). Detected by king moving exactly
         // two files. canCastle has already verified all conditions via isLegalMove.
@@ -224,6 +234,17 @@ public class GameState {
                 // capture
                 if (Math.abs(dcc)==1 && drc==dir && board[dr][dc]!='\0')
                     return true;
+                // en passant: diagonal move to the EP target square (P0 #2)
+                if (Math.abs(dcc)==1 && drc==dir && board[dr][dc]=='\0'
+                    && !enPassantTarget.equals("-")) {
+                    int epCol = enPassantTarget.charAt(0) - 'a';
+                    int epRow = 8 - (enPassantTarget.charAt(1) - '0');
+                    if (dr == epRow && dc == epCol) {
+                        // The pawn we'd capture must actually be sitting alongside us
+                        char expected = (p == 'P') ? 'p' : 'P';
+                        if (board[sr][dc] == expected) return true;
+                    }
+                }
                 return false;
             case 'r': // rook
                 if (drc!=0 && dcc!=0) return false;
@@ -427,25 +448,39 @@ public class GameState {
     public synchronized boolean isLegalMove(int sr, int sc, int dr, int dc) {
         char piece = board[sr][sc];
         char dest = board[dr][dc];
-        
+
         // Basic validation
         if (piece == '\0') return false;
         boolean isPieceWhite = Character.isUpperCase(piece);
         if (isPieceWhite != whiteToMove) return false;
         if (dest != '\0' && (Character.isUpperCase(dest) == isPieceWhite)) return false;
         if (!isValidPieceMove(piece, sr, sc, dr, dc)) return false;
-        
+
+        // EP capture: also remove the captured pawn during the probe so a
+        // discovered check unblocked by the captured pawn is correctly seen. (P0 #2)
+        boolean isEpCapture = (piece == 'P' || piece == 'p') && (sc != dc) && (dest == '\0');
+        char capturedEpPawn = '\0';
+        if (isEpCapture) {
+            capturedEpPawn = board[sr][dc];
+            board[sr][dc] = '\0';
+        }
+
         // Make the move temporarily
         board[dr][dc] = piece;
         board[sr][sc] = '\0';
-        
+
         // Check if king is in check after this move
         boolean kingInCheck = isInCheck();
-        
+
         // Undo the move
         board[sr][sc] = piece;
         board[dr][dc] = dest;
-        
+
+        // Restore EP-captured pawn
+        if (isEpCapture) {
+            board[sr][dc] = capturedEpPawn;
+        }
+
         return !kingInCheck;
     }
     

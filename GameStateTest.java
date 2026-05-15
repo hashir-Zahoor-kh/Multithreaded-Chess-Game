@@ -26,6 +26,13 @@ public class GameStateTest {
         testInvalidPromotionSuffixDefaultsToQueen();
         testPromotionSuffixIgnoredOnNonPromotingMove();
 
+        // P0 #2: en passant
+        testWhiteEnPassantCapture();
+        testBlackEnPassantCapture();
+        testCannotEnPassantWithoutTarget();
+        testEnPassantRemovesCapturedPawn();
+        testEnPassantExposingOwnKingIsRejected();
+
         // P0 #1: castling
         testWhiteKingsideCastle();
         testWhiteQueensideCastle();
@@ -299,6 +306,56 @@ public class GameStateTest {
         require("O-O legal", g.applyMove("e1g1"));
         String[] parts = g.getFen().split(" ");
         assertEq("castling is not pawn move/capture, halfmove++", "5", parts[4]);
+    }
+
+    // --- P0 #2: en passant tests ---
+
+    static void testWhiteEnPassantCapture() {
+        // Position after 1.e4 d5 2.e5 f5 — Black just played f7-f5, EP target f6
+        GameState g = new GameState(
+            "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3");
+        require("exf6 e.p. legal", g.applyMove("e5f6"));
+        assertEq("white EP capture FEN",
+            "rnbqkbnr/ppp1p1pp/5P2/3p4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3",
+            g.getFen());
+    }
+
+    static void testBlackEnPassantCapture() {
+        // Synthetic: Black pawn on e4, White just played d2-d4, EP target d3
+        GameState g = new GameState("4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1");
+        require("...exd3 e.p. legal", g.applyMove("e4d3"));
+        assertEq("black EP capture FEN",
+            "4k3/8/8/8/8/3p4/8/4K3 w - - 0 2",
+            g.getFen());
+    }
+
+    static void testCannotEnPassantWithoutTarget() {
+        // Same geometry as above but EP target cleared — move must be rejected
+        GameState g = new GameState("4k3/8/8/8/3Pp3/8/8/4K3 b - - 0 1");
+        boolean ok = g.applyMove("e4d3");
+        if (ok) { failed++; System.out.println("FAIL  EP rejected without target (accepted)"); }
+        else    { passed++; System.out.println("PASS  EP rejected without target"); }
+    }
+
+    static void testEnPassantRemovesCapturedPawn() {
+        // After EP, the captured pawn must be gone from its original square
+        GameState g = new GameState("4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1");
+        require("...exd3 e.p.", g.applyMove("e4d3"));
+        // d4 (the captured white pawn's square) must be empty
+        char atD4 = pieceAt(g, "d4");
+        if (atD4 == '\0') { passed++; System.out.println("PASS  EP removes captured pawn from d4"); }
+        else { failed++; System.out.println("FAIL  EP did not remove captured pawn (d4=" + atD4 + ")"); }
+    }
+
+    static void testEnPassantExposingOwnKingIsRejected() {
+        // White king on h5, white pawn on e5, black pawn just played d7-d5,
+        // black rook on a5. Both pawns currently block the rook from attacking
+        // the white king. If white plays exd6 e.p., both blockers vanish along
+        // rank 5 and the king is in check. The move must be rejected.
+        GameState g = new GameState("7k/8/8/r2pP2K/8/8/8/8 w - d6 0 1");
+        boolean ok = g.applyMove("e5d6");
+        if (ok) { failed++; System.out.println("FAIL  EP that exposes king accepted"); }
+        else    { passed++; System.out.println("PASS  EP that exposes own king rejected"); }
     }
 
     // --- Tiny assertion helpers ---
