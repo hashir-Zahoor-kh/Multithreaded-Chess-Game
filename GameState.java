@@ -132,7 +132,16 @@ public class GameState {
 
         char p = board[sr][sc];
         char dest = board[dr][dc];
-        boolean captureKing = (dest=='k' && whiteToMove) || (dest=='K' && !whiteToMove);
+
+        // P0 #6: a king should never be capturable in a legal game — isLegalMove
+        // guarantees the moving side leaves their own king safe, so the opposing
+        // king can never sit on an attacked square at the start of the next turn.
+        // If we somehow reach here with a king as the destination, that's a bug
+        // in validation, not a winning move; surface it loudly.
+        if (dest == 'K' || dest == 'k') {
+            throw new IllegalStateException(
+                "Move validation bug: king on " + uci.substring(2, 4) + " was capturable");
+        }
 
         // En passant: a pawn moving diagonally onto an empty square is, by
         // construction (validator already passed), an EP capture. The captured
@@ -225,12 +234,7 @@ public class GameState {
         positionHistory.add(positionKey());
 
         // Check for game end conditions
-        if (captureKing) {
-            gameOver = true;
-            boolean WhiteMove = !whiteToMove; // The player who just moved
-            String Winner = WhiteMove ? "White" : "Black";
-            this.result = Winner + " Wins!";
-        } else if (isCheckmate()) {
+        if (isCheckmate()) {
             gameOver = true;
             boolean WhiteMove = !whiteToMove; // The player who just moved
             String Winner = WhiteMove ? "White" : "Black";

@@ -26,6 +26,9 @@ public class GameStateTest {
         testInvalidPromotionSuffixDefaultsToQueen();
         testPromotionSuffixIgnoredOnNonPromotingMove();
 
+        // P0 #6: king capture is now an unreachable state
+        testKingCaptureThrows();
+
         // P0 #5: draw detection
         testFiftyMoveRuleDraw();
         testThreefoldRepetitionDraw();
@@ -476,6 +479,25 @@ public class GameStateTest {
         } else {
             passed++;
             System.out.println("PASS  pawn move clears repetition history");
+        }
+    }
+
+    // --- P0 #6: king-capture safety net ---
+
+    static void testKingCaptureThrows() {
+        // Malformed position: white to move, but the black king is in check
+        // (queen on a4 attacks b3). A legal game can never reach this state
+        // because the prior black move would have been rejected. If we ever
+        // do reach it, the new applyMove guard must throw rather than silently
+        // "win" by capturing the king.
+        GameState g = new GameState("8/8/8/8/Q7/1k6/8/4K3 w - - 0 1");
+        try {
+            g.applyMove("a4b3");
+            failed++;
+            System.out.println("FAIL  king capture should have thrown IllegalStateException");
+        } catch (IllegalStateException e) {
+            passed++;
+            System.out.println("PASS  king capture throws IllegalStateException");
         }
     }
 
