@@ -1,6 +1,8 @@
 //Hashir Zahoor Ur Rahman
 //Game State 
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 //Class that deals with the complete game logic and game state
@@ -24,6 +26,12 @@ public class GameState {
     private int     halfmoveClock   = 0;     // resets on pawn move or capture
     private int     fullmoveNumber  = 1;     // increments after Black's move
 
+    // Position keys for threefold-repetition detection (P0 #5).
+    // Key = first four FEN fields (placement + side + castling + EP).
+    // History is cleared whenever halfmoveClock resets, since pawn moves and
+    // captures are irreversible — no prior position can recur after them.
+    private final List<String> positionHistory = new ArrayList<>();
+
     public GameState(String startFen) {
         String[] parts = startFen.split(" ");
         loadFromFen(parts[0]);
@@ -39,6 +47,16 @@ public class GameState {
         if (parts.length > 5) {
             try { fullmoveNumber = Integer.parseInt(parts[5]); } catch (NumberFormatException ignored) {}
         }
+
+        // Seed repetition history with the starting position
+        positionHistory.add(positionKey());
+    }
+
+    // Position key for threefold repetition: placement + side + castling + EP.
+    // Halfmove and fullmove counters are intentionally excluded.
+    private String positionKey() {
+        String[] parts = getFen().split(" ");
+        return parts[0] + " " + parts[1] + " " + parts[2] + " " + parts[3];
     }
 
     private void parseCastlingRights(String rights) {
@@ -200,6 +218,12 @@ public class GameState {
         // switch turn
         whiteToMove = !whiteToMove;
 
+        // Maintain repetition history. An irreversible move (pawn move or
+        // capture) reset halfmoveClock to 0; the prior history can never recur,
+        // so drop it before recording the new position. (P0 #5)
+        if (halfmoveClock == 0) positionHistory.clear();
+        positionHistory.add(positionKey());
+
         // Check for game end conditions
         if (captureKing) {
             gameOver = true;
@@ -214,8 +238,17 @@ public class GameState {
         } else if (isStalemate()) {
             gameOver = true;
             this.result = "Draw by Stalemate!";
+        } else if (isDrawByFiftyMoveRule()) {
+            gameOver = true;
+            this.result = "Draw by 50-move rule!";
+        } else if (isDrawByThreefoldRepetition()) {
+            gameOver = true;
+            this.result = "Draw by Threefold Repetition!";
+        } else if (isDrawByInsufficientMaterial()) {
+            gameOver = true;
+            this.result = "Draw by Insufficient Material!";
         }
-        
+
         return true;
     }
     // Took from here, https://chatgpt.com/share/681a4bec-04e8-8007-be04-f62341fee7f8
@@ -333,7 +366,12 @@ public class GameState {
     }
 
     public boolean isGameOver() {
-        return gameOver || isCheckmate() || isStalemate();
+        return gameOver
+            || isCheckmate()
+            || isStalemate()
+            || isDrawByFiftyMoveRule()
+            || isDrawByThreefoldRepetition()
+            || isDrawByInsufficientMaterial();
     }
     
     // Check if the current player is in checkmate
@@ -346,6 +384,65 @@ public class GameState {
     private boolean isStalemate() {
         if (isInCheck()) return false;
         return !hasLegalMoves();
+    }
+
+    // P0 #5: 50-move rule. Any side may claim a draw at 50; we enforce
+    // automatically (matches the FIDE 75-move auto-draw bound from below).
+    private boolean isDrawByFiftyMoveRule() {
+        return halfmoveClock >= 100;
+    }
+
+    // P0 #5: threefold repetition. The current position must have appeared
+    // (at least) three times across the relevant history window.
+    private boolean isDrawByThreefoldRepetition() {
+        String key = positionKey();
+        int count = 0;
+        for (String p : positionHistory) {
+            if (p.equals(key)) count++;
+        }
+        return count >= 3;
+    }
+
+    // P0 #5: insufficient material. Conservative classical set:
+    //   K vs K
+    //   K + single minor (B or N) vs K
+    //   K + B vs K + B with bishops on the same square color
+    private boolean isDrawByInsufficientMaterial() {
+        int wB = 0, wN = 0, wOther = 0;
+        int bB = 0, bN = 0, bOther = 0;
+        int wBishopColor = -1, bBishopColor = -1;
+
+        for (int r = 0; r < SIZE; r++) {
+            for (int c = 0; c < SIZE; c++) {
+                char p = board[r][c];
+                if (p == '\0' || p == 'K' || p == 'k') continue;
+
+                int squareColor = (r + c) & 1;
+                switch (p) {
+                    case 'B': wB++; wBishopColor = squareColor; break;
+                    case 'N': wN++; break;
+                    case 'b': bB++; bBishopColor = squareColor; break;
+                    case 'n': bN++; break;
+                    default:
+                        if (Character.isUpperCase(p)) wOther++;
+                        else                          bOther++;
+                }
+            }
+        }
+
+        // Any pawn, rook, or queen on either side — mate is reachable
+        if (wOther > 0 || bOther > 0) return false;
+
+        int wMinors = wB + wN;
+        int bMinors = bB + bN;
+
+        if (wMinors == 0 && bMinors == 0) return true;                       // K vs K
+        if (wMinors == 1 && bMinors == 0) return true;                       // K+minor vs K
+        if (bMinors == 1 && wMinors == 0) return true;
+        if (wB == 1 && wN == 0 && bB == 1 && bN == 0
+            && wBishopColor == bBishopColor) return true;                    // K+B vs K+B same color
+
+        return false;
     }
     
     // Check if the current player's king is in check

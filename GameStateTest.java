@@ -26,6 +26,17 @@ public class GameStateTest {
         testInvalidPromotionSuffixDefaultsToQueen();
         testPromotionSuffixIgnoredOnNonPromotingMove();
 
+        // P0 #5: draw detection
+        testFiftyMoveRuleDraw();
+        testThreefoldRepetitionDraw();
+        testInsufficientMaterial_KvK();
+        testInsufficientMaterial_KBvK();
+        testInsufficientMaterial_KNvK();
+        testInsufficientMaterial_KBvKB_sameColor();
+        testNotInsufficient_KBvKB_differentColor();
+        testNotInsufficient_KRvK();
+        testRepetitionHistoryClearsOnPawnMove();
+
         // P0 #2: en passant
         testWhiteEnPassantCapture();
         testBlackEnPassantCapture();
@@ -356,6 +367,116 @@ public class GameStateTest {
         boolean ok = g.applyMove("e5d6");
         if (ok) { failed++; System.out.println("FAIL  EP that exposes king accepted"); }
         else    { passed++; System.out.println("PASS  EP that exposes own king rejected"); }
+    }
+
+    // --- P0 #5: draw-detection tests ---
+
+    static void testFiftyMoveRuleDraw() {
+        // Halfmove at 99; one more non-pawn / non-capture move pushes it to 100.
+        // K+R vs K is sufficient material, so this isolates the 50-move rule.
+        GameState g = new GameState("4k3/8/8/8/8/8/8/R3K3 w - - 99 50");
+        require("Kf1 (50th move)", g.applyMove("e1f1"));
+        require("game over", g.isGameOver());
+        assertEq("50-move rule fires", "Draw by 50-move rule!", g.getResult());
+    }
+
+    static void testThreefoldRepetitionDraw() {
+        // Knights bouncing — back to start every two full moves.
+        GameState g = new GameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w");
+        String[] cycle = {"g1f3", "g8f6", "f3g1", "f6g8"};
+        // Two full cycles return to the starting position twice more (3 occurrences total).
+        for (int i = 0; i < cycle.length * 2; i++) {
+            require("move " + cycle[i % 4], g.applyMove(cycle[i % 4]));
+        }
+        require("game over after 3rd repetition", g.isGameOver());
+        assertEq("threefold repetition fires",
+            "Draw by Threefold Repetition!", g.getResult());
+    }
+
+    static void testInsufficientMaterial_KvK() {
+        // After Kxd2 only the two kings remain.
+        GameState g = new GameState("4k3/8/8/8/8/8/3p4/4K3 w - - 0 1");
+        require("Kxd2", g.applyMove("e1d2"));
+        require("game over", g.isGameOver());
+        assertEq("K vs K is a draw",
+            "Draw by Insufficient Material!", g.getResult());
+    }
+
+    static void testInsufficientMaterial_KBvK() {
+        // After Bxc2 white has K + B vs lone black king.
+        GameState g = new GameState("4k3/8/8/8/8/8/2p5/3BK3 w - - 0 1");
+        require("Bxc2", g.applyMove("d1c2"));
+        require("game over", g.isGameOver());
+        assertEq("K+B vs K insufficient",
+            "Draw by Insufficient Material!", g.getResult());
+    }
+
+    static void testInsufficientMaterial_KNvK() {
+        // After Nxc3 white has K + N vs lone black king.
+        GameState g = new GameState("4k3/8/8/8/8/2p5/8/3NK3 w - - 0 1");
+        require("Nxc3", g.applyMove("d1c3"));
+        require("game over", g.isGameOver());
+        assertEq("K+N vs K insufficient",
+            "Draw by Insufficient Material!", g.getResult());
+    }
+
+    static void testInsufficientMaterial_KBvKB_sameColor() {
+        // Both bishops on dark squares (e3 and d6 are both dark).
+        GameState g = new GameState("4k3/8/3b4/8/8/4B3/8/4K3 w - - 0 1");
+        require("Kf1 (no material change)", g.applyMove("e1f1"));
+        require("game over", g.isGameOver());
+        assertEq("K+B vs K+B same color insufficient",
+            "Draw by Insufficient Material!", g.getResult());
+    }
+
+    static void testNotInsufficient_KBvKB_differentColor() {
+        // White bishop on e3 (dark), black bishop on c6 (light) — opposite colors.
+        GameState g = new GameState("4k3/8/2b5/8/8/4B3/8/4K3 w - - 0 1");
+        require("Kf1", g.applyMove("e1f1"));
+        if (g.isGameOver()) {
+            failed++;
+            System.out.println("FAIL  K+B vs K+B different colors should NOT be a draw");
+        } else {
+            passed++;
+            System.out.println("PASS  K+B vs K+B different colors not a draw");
+        }
+    }
+
+    static void testNotInsufficient_KRvK() {
+        // K + R vs K is winnable; not a draw by material.
+        GameState g = new GameState("4k3/8/8/8/8/8/3p4/3RK3 w - - 0 1");
+        require("Rxd2", g.applyMove("d1d2"));
+        if (g.isGameOver()) {
+            failed++;
+            System.out.println("FAIL  K+R vs K should NOT be a draw");
+        } else {
+            passed++;
+            System.out.println("PASS  K+R vs K not a draw");
+        }
+    }
+
+    static void testRepetitionHistoryClearsOnPawnMove() {
+        // Repeat-the-same-knight-cycle once, then push a pawn (irreversible),
+        // then repeat the cycle again — should NOT trigger threefold because
+        // the pawn move severed the history.
+        GameState g = new GameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w");
+        // Two cycles → starting position has appeared twice
+        String[] cycle = {"g1f3", "g8f6", "f3g1", "f6g8"};
+        for (int i = 0; i < cycle.length; i++) require("c1." + cycle[i], g.applyMove(cycle[i]));
+        // Pawn move (white)
+        require("a2a3", g.applyMove("a2a3"));
+        // Black response that doesn't recreate any prior position
+        require("a7a6", g.applyMove("a7a6"));
+        // Another full cycle — but the previously-seen pre-pawn positions are gone
+        for (int i = 0; i < cycle.length; i++) require("c2." + cycle[i], g.applyMove(cycle[i]));
+        if (g.isGameOver()) {
+            failed++;
+            System.out.println("FAIL  history should have been cleared on pawn move ("
+                + g.getResult() + ")");
+        } else {
+            passed++;
+            System.out.println("PASS  pawn move clears repetition history");
+        }
     }
 
     // --- Tiny assertion helpers ---
